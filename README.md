@@ -1,4 +1,4 @@
-# STAGE: Structured Temporal and Graph Encoding Network for Credit Default Prediction
+# STAGE: Structured Temporal and Graph Encoding Network for Credit Risk Prediction
 
 This repository provides the implementation of **STAGE (Structured Temporal and Graph Encoding Network)** for credit default prediction.
 
