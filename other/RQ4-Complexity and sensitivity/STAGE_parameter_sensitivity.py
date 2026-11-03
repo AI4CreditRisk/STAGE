@@ -31,13 +31,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 warnings.filterwarnings('ignore')
 
-
-# 使用方法：确认 FILE_MAP 中四个数据路径，然后运行本文件。
+# Usage: confirm the four dataset paths below, then run this file.
 # python STAGE_parameter_sensitivity.py
-# 仅运行 GMSC 时，将 DATASETS 改为 ["gmsc"]。
-# 单因素敏感性：只改变当前参数，其他参数保持 BASELINE。
-# 每个数据集 13 个唯一配置，三个面板各 5 点（共享同一个基准结果）。
-# 所有指标均来自真实运行；本文件不含示例/预设结果。
+# To run only GMSC, set DATASETS to ["gmsc"].
+# Single-factor sensitivity: only the current parameter varies; others stay at BASELINE.
+# 13 unique configurations per dataset, 5 points per panel (baseline shared across panels).
+# All metrics come from real runs; no sample/preset results in this file.
 SEED = 42
 os.environ["PYTHONHASHSEED"] = str(SEED)
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
@@ -66,7 +65,7 @@ SENS_GRID = {
     "gate_lambda": [0.0, 0.001, 0.005, 0.01, 0.05],
     "weight_decay": [0.0, 1e-5, 1e-4, 5e-4, 1e-3],
 }
-# 每次启动创建独立时间戳目录，避免覆盖旧实验。
+# Each launch creates a timestamped directory to avoid overwriting previous experiments.
 OUTPUT_ROOT = Path(__file__).resolve().parent / "sensitivity_results"
 
 def set_seed(seed=SEED):
@@ -80,11 +79,30 @@ def set_seed(seed=SEED):
     torch.backends.cudnn.benchmark = False
     torch.use_deterministic_algorithms(True)
 
+# =========================================================
+# File Path Configuration
+# =========================================================
+# Dynamically locate the data directory relative to the current script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+if os.path.exists(os.path.join(SCRIPT_DIR, 'data')):
+    DATA_DIR = os.path.join(SCRIPT_DIR, 'data')
+elif os.path.exists(os.path.join(SCRIPT_DIR, '..', 'data')):
+    DATA_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'data'))
+elif os.path.exists(os.path.join(SCRIPT_DIR, 'Dataset')):
+    DATA_DIR = os.path.join(SCRIPT_DIR, 'Dataset')
+elif os.path.exists(os.path.join(SCRIPT_DIR, '..', 'Dataset')):
+    DATA_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'Dataset'))
+else:
+    DATA_DIR = 'data' # Fallback
+
+print(f"Data directory resolved to: {DATA_DIR}")
+
 FILE_MAP = {
-    "lendingclub": r"E:\论文写作\creditrisk\论文完整代码\dataset\LoanStatus_2017Q1_ml_01.csv",
-    "gmsc": r"E:\论文写作\creditrisk\论文完整代码\dataset\cs_training_fe_01.csv",
-    "internet": r"E:\论文写作\creditrisk\论文完整代码\dataset\train_internetdata3.csv",
-    "creditcard": r"E:\论文写作\creditrisk\论文完整代码\dataset\default of credit card clientsUCI.csv",
+    "lendingclub": os.path.join(DATA_DIR, "LoanStatus_2017Q1_ml_01.csv"),
+    "gmsc": os.path.join(DATA_DIR, "cs_training_fe_01.csv"),
+    "internet": os.path.join(DATA_DIR, "train_internetdata3.csv"),
+    "creditcard": os.path.join(DATA_DIR, "default of credit card clientsUCI.csv"),
 }
 
 def load_dataset(dataset_name):
@@ -589,7 +607,7 @@ def prepare_dataset(dataset_name, dataset_dir):
 
 
     if len(train_loader) == 0:
-        raise ValueError("训练集少于 BATCH_SIZE；原代码 drop_last=True 将导致无训练批次。")
+        raise ValueError("Training set smaller than BATCH_SIZE; drop_last=True would yield no batches.")
     np.savez_compressed(dataset_dir / "split_indices.npz",
                         train=idx_train, val=idx_val, test=idx_test)
     with open(dataset_dir / "features.json", "w", encoding="utf-8") as f:
@@ -1101,7 +1119,7 @@ def run_experiment(dataset_name, data, params, run_dir):
 
     print_metrics(metrics_best, f"Test @ threshold={best_thr:.3f}")
 
-    # F1 主结果使用最佳验证集阈值；另存固定 0.5 的 F1 便于核查。
+    # Main F1 uses the validation-selected threshold; F1 at fixed 0.5 is also stored for verification.
     result = {
         "dataset": dataset_name, "dataset_label": DATASET_LABELS[dataset_name],
         "seed": SEED, **params,
@@ -1145,7 +1163,7 @@ def iter_sensitivity_configs():
 
 
 def save_summary(rows, destination):
-    """每完成一点就保存；共享基准在三个参数面板中各出现一次。"""
+    """Save after each point; the shared baseline appears once per panel."""
     frame = pd.DataFrame(rows)
     target = destination / "sensitivity_results.csv"
     temporary = destination / "sensitivity_results.tmp"
@@ -1158,7 +1176,7 @@ def save_summary(rows, destination):
 
 
 def plot_sensitivity(frame, destination, dataset_names):
-    """列=参数，行=AUC/KS/F1；横轴按离散候选值等距展示并标明实际值。"""
+    """Columns = parameters, rows = AUC/KS/F1; x-axis uses discrete candidates with actual values labeled."""
     fig, axes = plt.subplots(3, 3, figsize=(15, 10), squeeze=False)
     colors = {"lendingclub": "#2878B5", "gmsc": "#D95319",
               "internet": "#2C9C75", "creditcard": "#8B62A9"}
@@ -1196,17 +1214,17 @@ def plot_sensitivity(frame, destination, dataset_names):
 
 def main():
     if not DATASETS or len(set(DATASETS)) != len(DATASETS):
-        raise ValueError("DATASETS 不能为空或包含重复名称。")
+        raise ValueError("DATASETS must be non-empty and contain no duplicate names.")
     if set(BASELINE) != set(SENS_GRID):
-        raise ValueError("BASELINE 与 SENS_GRID 的参数名必须一致。")
+        raise ValueError("BASELINE and SENS_GRID must use the same parameter names.")
     for parameter, values in SENS_GRID.items():
         if BASELINE[parameter] not in values or len(set(values)) != len(values):
-            raise ValueError(f"{parameter}: 网格必须包含基准值，且不得有重复值。")
+            raise ValueError(f"{parameter}: grid must contain baseline and no duplicate values.")
     for dataset_name in DATASETS:
         if dataset_name not in FILE_MAP:
             raise ValueError(f"Unknown dataset: {dataset_name}")
         if not Path(FILE_MAP[dataset_name]).is_file():
-            raise FileNotFoundError(f"请检查 FILE_MAP[{dataset_name!r}]: {FILE_MAP[dataset_name]}")
+            raise FileNotFoundError(f"Check FILE_MAP[{dataset_name!r}]: {FILE_MAP[dataset_name]}")
     output_dir = OUTPUT_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     output_dir.mkdir(parents=True, exist_ok=False)
     metadata = {
@@ -1226,8 +1244,8 @@ def main():
         unique_count - START_RUN.get(name, 1) + 1
         for name in DATASETS
     )
-    print(f"本次共运行 {remaining_count} 次独立训练。")
-    print("internet：run_11 至 run_13；creditcard：run_01 至 run_13。")
+    print(f"Total independent training runs this launch: {remaining_count}.")
+    print("internet: run_11 to run_13; creditcard: run_01 to run_13.")
     print("Output directory:", output_dir)
     all_rows = []
     try:
@@ -1240,8 +1258,8 @@ def main():
             cache = {}
             dataset_rows = []
 
-            # 按原代码的首次出现顺序，为每个不同配置分配编号。
-            # 不能用 len(cache) 编号，否则跳过前10组后会重新从01计数。
+            # Assign each distinct configuration a number in original first-appearance order.
+            # len(cache) cannot be used as the run id, otherwise the counter restarts from 01 after skipping the first 10 configs.
             config_run_numbers = {}
             for _, _, config in iter_sensitivity_configs():
                 config_key = configuration_key(config)
@@ -1256,7 +1274,7 @@ def main():
                 key = configuration_key(params)
                 run_number = config_run_numbers[key]
 
-                # 跳过起点之前的配置，包括它们在其他参数面板中的重复项
+                # Skip configs before the start index, including duplicates in other panels.
                 if run_number < start_run:
                     continue
 
@@ -1270,7 +1288,7 @@ def main():
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 else:
-                    print(f"复用相同基准结果: {parameter}={value}")
+                    print(f"Reusing identical baseline result: {parameter}={value}")
                 record = {"parameter": parameter, "value": value,
                           "is_baseline": key == configuration_key(BASELINE), **cache[key]}
                 dataset_rows.append(record)
@@ -1287,16 +1305,16 @@ def main():
             del data
             gc.collect()
     except Exception as exc:
-        # 不把失败配置伪装成 0 分，也不静默跳过数据集。
+        # Do not fake failed configs as 0, nor silently skip datasets.
         (output_dir / "error.txt").write_text(f"{type(exc).__name__}: {exc}", encoding="utf-8")
-        print(f"运行中断，已完成结果保存在: {output_dir}")
+        print(f"Run interrupted; completed results saved to: {output_dir}")
         raise
     final_frame = save_summary(all_rows, output_dir)
     plot_sensitivity(final_frame, output_dir, DATASETS)
-    print("\n完整结果（F1 使用各模型的验证集最优阈值）：")
+    print("\nFinal results (F1 uses each model's validation-selected threshold):")
     print(final_frame[["dataset_label", "parameter", "value", "AUC", "KS", "F1"]]
           .to_string(index=False, float_format=lambda x: f"{x:.6f}"))
-    print(f"\n结果与图片已保存: {output_dir}")
+    print(f"\nResults and figures saved to: {output_dir}")
 
 
 if __name__ == "__main__":
